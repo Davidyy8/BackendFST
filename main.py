@@ -40,6 +40,7 @@ def crear_usuario(datos: UsuarioCrear, session: Session = Depends(get_session)):
         session.refresh(nuevo_usuario)
         return {'message' : 'Usuario creado con exito', 'id' : nuevo_usuario.id}
     except Exception as e:
+        print(e)
         session.rollback()
         raise HTTPException(status_code=400, detail='El usuario o email ya existen')
 
