@@ -1,19 +1,103 @@
 # Fichero principal de la app.
 # Ativar el venv:
 # venv\Scripts\activate
+# uvicorn main:app --reload 
 
-from fastapi import FastAPI, Depends, HTTPException
+
+from unittest import result
+
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, desc
 from database import engine, get_session
 from models import Usuarios, Usuario_Eventos, Eventos, Seguidos
-from schemas import UsuarioCrear, UsuarioUpdate, EventoCrear, EventoUpdate, EventoUsiarioCrear
+from schemas import UsuarioCrear, UsuarioUpdate, EventoCrear, EventoUpdate, EventoUsiarioCrear, LoginSchema
 from security import hash_password
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import jwt
+from datetime import datetime, timedelta, timezone
+from fastapi.middleware.cors import CORSMiddleware
+from security import verify_password
+import requests as request
+import cloudinary
+import cloudinary.uploader
+
+
+
+
+CLAVE_SECRETA = 'fstAPLICACION2026marzo23'
 
 app = FastAPI(title='FST Festival Show Tracker')
+
+origins = [
+    "http://localhost:4200",
+    "http://127.0.0.1:4200",
+]
+
+# 2. Añade el middleware a la aplicación
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,            # Permite Angular
+    allow_credentials=True,
+    allow_methods=["*"],              # Permite GET, POST, DELETE, etc.
+    allow_headers=["*"],              # Permite enviar el Token y otros headers
+)
+
+cloudinary.config(
+    cloud_name='drcves0eu',
+    api_key='362923837264938',
+    api_secret='V_8TSAaJtncBUi3KLQyaUDQYif4'
+)
+
+
 
 @app.get('/')
 def root():
     return {'menssage' : 'Bienvenido a la api de FST'}
+
+
+@app.post('/upload-imagen')
+async def upload_image(file: UploadFile = File(...)):
+    try:
+        # Subir la imagen a Cloudinary
+        result = cloudinary.uploader.upload(file.file)
+
+        # devolvemos lo que nos da cloudinary
+        return { 'image_url': result['secure_url'] }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/login")
+def login(datos: LoginSchema, session: Session = Depends(get_session)):
+    # 1. Buscar usuario
+    user = session.exec(select(Usuarios).where(Usuarios.email == datos.email)).first()
+
+    hashed_pssword = hash_password(datos.password)
+
+    if user:
+            print(f"DEBUG: Contraseña que llega de Angular -> {hashed_pssword}")
+            print(f"DEBUG: Contraseña guardada en la DB  -> {user.password}")
+    
+    # 2. Validar (Simplificado: comparación directa si no quieres usar bcrypt aún)
+    if not user or verify_password(hashed_pssword, user.password): 
+        raise HTTPException(401, "Error")
+
+    # 3. Crear Token rápido
+    token = jwt.encode(
+        {"id": user.id, "exp": datetime.now(timezone.utc) + timedelta(hours=24)}, 
+        CLAVE_SECRETA, 
+        algorithm="HS256"
+    )
+    return {"token": token, "id": user.id}
+
+
+
+@app.get('/usuarios/buscar')
+def buscarUsuarios(q: str, session: Session = Depends(get_session)):
+    # Buscamos al usuario cuyo nombre contenga q
+    statement = select(Usuarios).where(Usuarios.nombre_usuario.contains(q))
+    resultados = session.exec(statement).all()
+    return resultados
 
 @app.get('/usuarios')
 def listar_usuarios(session: Session = Depends(get_session)):
@@ -21,15 +105,21 @@ def listar_usuarios(session: Session = Depends(get_session)):
     usuarios = session.exec(select(Usuarios)).all()
     return usuarios
 
+@app.get('/usuarios/{usuario_id}')
+def getUsuariobyId(usuario_id: int, session: Session = Depends(get_session)):
+    usuario = session.get(Usuarios, usuario_id)
+    return usuario
+
+
 @app.post('/usuarios')
 def crear_usuario(datos: UsuarioCrear, session: Session = Depends(get_session)):
     # Encriptar la contraseña
-    hashed_pwd = hash_password(datos.contraseña)
+    hashed_pwd = hash_password(datos.password)
 
     nuevo_usuario = Usuarios(
         nombre_usuario=datos.nombre_usuario,
         email=datos.email,
-        contraseña=hashed_pwd,
+        password=hashed_pwd,
         descripcion=datos.descripcion
     )
 
@@ -62,13 +152,17 @@ def actualizar_usuario(
 
     for key, value in datos_dic.items():
         setattr(usuario_db, key, value)
-    
-    # Guardar los cambios 
-    session.add(usuario_db)
-    session.commit()
-    session.refresh(usuario_db)
+    try:
+        # Guardar los cambios 
+        session.add(usuario_db)
+        session.commit()
+        session.refresh(usuario_db)
 
-    return {'message' : 'Perfil actualizado', 'usuario' : usuario_db}
+        return {'message' : 'Perfil actualizado', 'usuario' : usuario_db}
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=400, detail='el nombre ya esta en uso elige otro')
+
 
 @app.delete('/usuarios/{usuario_id}')
 def eliminar_usuario(usuario_id: int, session: Session = Depends(get_session)):
@@ -91,9 +185,14 @@ def listar_eventos(session: Session = Depends(get_session)):
     eventos = session.exec(select(Eventos)).all()
     return eventos
 
+@app.get('/eventos/{evento_id}')
+def getEventoById(evento_id: int, session: Session = Depends(get_session)):
+    evento = session.exec(select(Eventos).where(Eventos.id == evento_id)).first()
+    return evento
 
-@app.post('/eventos')
-def crear_evento(datos: EventoCrear, session: Session = Depends(get_session)):
+
+@app.post('/eventos/{usuario_id}')
+def crear_evento(datos: EventoCrear, usuario_id: int , session: Session = Depends(get_session)):
     
     nuevo_evento = Eventos(
         nombre=datos.nombre,
@@ -101,7 +200,8 @@ def crear_evento(datos: EventoCrear, session: Session = Depends(get_session)):
         localizacion=datos.localizacion,
         fecha=datos.fecha,
         ciudad=datos.ciudad,
-        image_Url=datos.image_Url
+        image_Url=datos.image_Url,
+        id_creador=usuario_id
     )
 
     try: 
@@ -151,8 +251,19 @@ def eliminar_evento(evento_id: int, session: Session = Depends(get_session)):
     # Lanzamos un mensaje
     return {'message' : 'Evento eliminado con exito'}
 
+@app.get('/eventos/usuario/{usuario_id}')
+def listar_eventos_por_creador(usuario_id: int, session: Session = Depends(get_session)):
+    statement = select(Eventos).where(Eventos.id_creador == usuario_id)
 
-@app.post('/evento_usario')
+    try:
+        eventos = session.exec(statement).all()
+        return eventos
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail='Error al obtener los evntos')
+
+
+@app.post('/evento_usuario')
 def asistirEvento(usuario_id: int, evento_id: int, status: str, comentario: str = None ,session: Session = Depends(get_session)):
     # Comprobar si hay relacion 
     statement = select(Usuario_Eventos).where(
@@ -160,7 +271,7 @@ def asistirEvento(usuario_id: int, evento_id: int, status: str, comentario: str 
         Usuario_Eventos.id_evento == evento_id
     )
 
-    existente = session.exec(statement).first
+    existente = session.exec(statement).first()
 
     if existente:
         raise HTTPException(status_code=400, detail='Este usuario ya tiene este evento en su libreria')
@@ -177,11 +288,12 @@ def asistirEvento(usuario_id: int, evento_id: int, status: str, comentario: str 
     try:
         session.add(nueva_relacion)
         session.commit()
-        session.refresh()
+        session.refresh(nueva_relacion)
         return {'message' : 'relacion guardada con exito', 'datos' : nueva_relacion}
     except Exception as e:
         session.rollback()
         raise HTTPException(status_code=500, detail='Error al guardar la relacion')
+
 
 @app.delete('/evento_usuario')
 def eliminarAsistencia(usuario_id: int, evento_id: int, session: Session = Depends(get_session)):
@@ -190,7 +302,7 @@ def eliminarAsistencia(usuario_id: int, evento_id: int, session: Session = Depen
         Usuario_Eventos.id_usuario == usuario_id,
         Usuario_Eventos.id_evento == evento_id
     )
-    existente = session.exec(statement).first
+    existente = session.exec(statement).first()
     if not existente:
         raise HTTPException(status_code=400, detail='Esta relacion no existe')
     
@@ -224,10 +336,9 @@ def obtener_usuarios_eventos(usuario_id: int, session: Session = Depends(get_ses
             'fecha':evento.fecha,
             'ciudad':evento.ciudad,
             'image_Url':evento.image_Url,
-            'otro datos': {
-                'estatus':estatus,
-                'comentario': comentario
-            }
+            'estatus':estatus,
+            'comentario': comentario
+            
         })
     return listado
 
@@ -329,3 +440,37 @@ def obtener_feed_social(mi_id: int, session: Session = Depends(get_session)):
         })
 
     return feed
+
+@app.get('/eventos/{evento_id}/comentarios')
+def obtener_comentarios(evento_id: int, session: Session = Depends(get_session)):
+    statement = select(Usuario_Eventos, Usuarios).join(Usuarios).where(Usuario_Eventos.id_evento == evento_id)
+    resultados = session.exec(statement).all()
+
+    comentarios = []
+    for relacion, usuario in resultados:
+        comentarios.append({
+            'nombre_usuario': usuario.nombre_usuario,
+            'foto_perfil': usuario.foto_perfil,
+            'estatus': relacion.estatus,
+            'comentario': relacion.comentario
+        })
+
+    return comentarios
+
+
+@app.patch('/usuarios/evento/comentario')
+def actualizar_comentario(datos_entrada: Usuario_Eventos, session: Session = Depends(get_session)):
+
+    relacion = session.exec(select(Usuario_Eventos).where(
+        Usuario_Eventos.id_usuario == datos_entrada.id_usuario,
+        Usuario_Eventos.id_evento == datos_entrada.id_evento
+    )).first()
+
+    if not relacion:
+        raise HTTPException(status_code=404, detail='No tienes relacion con este evento')
+    
+    relacion.comentario = datos_entrada.comentario
+    session.add(relacion)
+    session.commit()
+
+    return {'message': 'comentario actualizado'}

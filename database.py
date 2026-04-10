@@ -1,7 +1,7 @@
 # Fichero de configuración de la base de datos.
 from sqlmodel import create_engine, Session
 
-base_url = 'mysql+pymysql://david:@localhost:3306/FST'
+base_url = 'mysql+pymysql://root:@localhost:3306/FST'
 
 engine  = create_engine(base_url, echo=True)
 

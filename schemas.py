@@ -7,7 +7,7 @@ from datetime import date
 class UsuarioCrear(BaseModel):
     nombre_usuario: str
     email: EmailStr
-    contraseña: str
+    password: str
     descripcion: Optional[str] = None
 
 class UsuarioUpdate(BaseModel):
@@ -15,6 +15,9 @@ class UsuarioUpdate(BaseModel):
     descripcion: Optional[str] = None
     foto_perfil: Optional[str] = None
 
+class LoginSchema(BaseModel):
+    email: str
+    password: str
 
 class EventoCrear(BaseModel):
     nombre: str
@@ -23,6 +26,8 @@ class EventoCrear(BaseModel):
     fecha: date
     ciudad: str
     image_Url: Optional[str]
+
+
 
 class EventoUpdate(BaseModel):
     nombre: Optional[str] = None
