@@ -4,6 +4,7 @@
 # uvicorn main:app --reload 
 
 
+import os
 from unittest import result
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
@@ -33,7 +34,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 # Configuración de la conexión con Google
 conf = ConnectionConfig(
     MAIL_USERNAME="davidcorreoard@gmail.com",
-    MAIL_PASSWORD="gygragnzkyaegsjt",
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
     MAIL_FROM="davidcorreoard@gmail.com",
     MAIL_PORT=587,
     MAIL_SERVER="smtp.gmail.com",
@@ -64,8 +65,8 @@ app.add_middleware(
 
 cloudinary.config(
     cloud_name='drcves0eu',
-    api_key='362923837264938',
-    api_secret='V_8TSAaJtncBUi3KLQyaUDQYif4'
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
 
