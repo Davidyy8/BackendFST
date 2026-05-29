@@ -52,6 +52,7 @@ app = FastAPI(title='FST Festival Show Tracker')
 origins = [
     "http://localhost:4200",
     "http://127.0.0.1:4200",
+    "https://backendfst-3trg.onrender.com"
 ]
 
 # 2. Añade el middleware a la aplicación
