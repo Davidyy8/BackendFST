@@ -736,22 +736,23 @@ import json
 from models import Subscription
 
 @app.post("/usuarios/push/subscribe/{user_id}")
-def subscribe_user(user_id: int, sub_data: dict, session: Session = Depends(get_session)):
-    # Buscamos si ya existe para actualizarla en lugar de crear un duplicado
+def save_sub(user_id: int, sub: dict, session: Session = Depends(get_session)):
+    # 1. Buscamos si este usuario ya tiene una suscripción guardada (Estilo SQLModel)
     statement = select(Subscription).where(Subscription.user_id == user_id)
-    sub = session.exec(statement).first()
+    existing_sub = session.exec(statement).first()
     
-    if sub:
-        # Actualizamos la suscripción existente
-        sub.sub_json = str(sub_data)
-        session.add(sub)
+    if existing_sub:
+        # Si ya existe, actualizamos el JSON (Mantenemos tu lógica limpia)
+        existing_sub.sub_json = json.dumps(sub)
+        session.add(existing_sub)
     else:
-        # Creamos una nueva
-        new_sub = Subscription(user_id=user_id, sub_json=str(sub_data))
+        # Si no existe, creamos una nueva fila
+        new_sub = Subscription(user_id=user_id, sub_json=json.dumps(sub))
         session.add(new_sub)
         
     session.commit()
-    return {"message": "Suscripción guardada"}
+    return {"status": "Suscrito correctamente"}
+
 
 @app.delete("/usuarios/push/unsubscribe/{user_id}")
 def unsubscribe_user(user_id: int, session: Session = Depends(get_session)):
